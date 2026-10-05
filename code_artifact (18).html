@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智慧班級月報排版產生器</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- heic2any (處理 iPhone 圖片) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js"></script>
+  <!-- SortableJS (處理拖曳排序) -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+  <!-- html2canvas (處理 PNG 匯出) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- html2pdf (完美解決 PDF 排版跑版問題) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@400;700;900&family=Yuji+Syuku&family=Zen+Maru+Gothic:wght@400;500;700&display=swap');
+
+    body { font-family: 'Noto Sans TC', sans-serif; background-color: #f1f5f9; }
+    
+    /* 字體類別 */
+    .font-sans { font-family: 'Noto Sans TC', sans-serif; }
+    .font-serif { font-family: 'Noto Serif TC', serif; }
+    .font-hand { font-family: 'Yuji Syuku', serif; }
+    .font-round { font-family: 'Zen Maru Gothic', sans-serif; }
+
+    /* 隱藏捲軸但允許捲動 */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    /* 絕對 A4 尺寸畫布 (210mm x 297mm)，保證所見即所得 */
+    .a4-paper {
+      width: 210mm;
+      min-height: 297mm;
+      background: white;
+      margin: 0 auto;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      padding: 15mm; /* 內邊距設定 */
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    /* 列印與 PDF 匯出優化 */
+    @media print {
+      body { background-color: white; }
+      #sidebar, #topbar, .no-print { display: none !important; }
+      #main-content { padding: 0 !important; margin: 0 !important; overflow: visible !important; width: 100% !important; }
+      .a4-paper { 
+        box-shadow: none !important; 
+        margin: 0 !important; 
+        padding: 15mm !important; 
+        width: 210mm !important;
+        height: 297mm !important;
+      }
+      @page { size: A4 portrait; margin: 0; }
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+  </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+  <!-- 預載所有 col-span 類別確保動態生成時 Tailwind 能正確渲染 -->
+  <div class="hidden col-span-1 col-span-2 col-span-3 col-span-4 col-span-5 col-span-6 col-span-7 col-span-8 col-span-9 col-span-10 col-span-11 col-span-12"></div>
+
+  <header id="topbar" class="bg-white shadow-sm border-b border-slate-200 py-3 px-6 flex justify-between items-center z-10 shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="bg-indigo-600 text-white w-8 h-8 rounded flex items-center justify-center font-bold">
+        <i class="fa-solid fa-newspaper"></i>
+      </div>
+      <h1 class="text-xl font-bold text-slate-800 tracking-tight">智慧班級月報排版產生器</h1>
+    </div>
+    
+    <div class="flex items-center gap-3">
+      <!-- Google 登入與雲端儲存按鈕 -->
+      <div id="auth-container" class="flex items-center">
+         <button id="btn-google-login" onclick="if(window.googleLogin) window.googleLogin()" class="bg-white hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold transition border border-slate-200 flex items-center gap-2 shadow-sm mr-2 hidden">
+           <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" class="w-4 h-4" alt="Google">
+           <span>Google 登入同步</span>
+         </button>
+         <div id="user-profile" class="hidden flex items-center gap-2 mr-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+           <img id="user-avatar" src="" class="w-6 h-6 rounded-full border border-slate-300">
+           <span id="user-name" class="text-xs font-bold text-slate-700"></span>
+           <button id="btn-logout" onclick="if(window.googleLogout) window.googleLogout()" class="text-slate-400 hover:text-rose-500 ml-2 transition" title="登出帳號"><i class="fa-solid fa-sign-out-alt"></i></button>
+         </div>
+      </div>
+
+      <!-- 暫存進度與備份下拉選單 -->
+      <div class="relative group">
+        <button onclick="saveProgress()" class="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 border border-slate-200">
+          <i class="fa-solid fa-floppy-disk text-indigo-600"></i>
+          <span>暫存進度</span>
+          <span id="save-time-badge" class="text-[11px] font-normal text-slate-400"></span>
+        </button>
+        <div class="absolute right-0 mt-1.5 w-52 bg-white rounded-xl shadow-xl border border-slate-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 overflow-hidden py-1">
+          <button onclick="saveProgress()" class="block w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700 text-xs font-semibold">
+            <i class="fa-solid fa-floppy-disk mr-2 w-4 text-indigo-500"></i>立即手動儲存
+          </button>
+          <button onclick="exportBackupJSON()" class="block w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700 text-xs font-semibold">
+            <i class="fa-solid fa-file-export mr-2 w-4 text-emerald-500"></i>匯出備份檔 (.json)
+          </button>
+          <label class="block w-full text-left px-4 py-2 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer">
+            <i class="fa-solid fa-file-import mr-2 w-4 text-amber-500"></i>匯入備份檔 (.json)
+            <input type="file" accept=".json" class="hidden" onchange="importBackupJSON(event)">
+          </label>
+          <div class="border-t border-slate-100 my-1"></div>
+          <button onclick="resetToDefaultState()" class="block w-full text-left px-4 py-2 hover:bg-rose-50 text-rose-600 text-xs font-semibold">
+            <i class="fa-solid fa-rotate-left mr-2 w-4"></i>重置為預設範本
+          </button>
+        </div>
+      </div>
+
+      <div class="relative group">
+        <button id="exportMenuBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition shadow flex items-center gap-2">
+          <i class="fa-solid fa-download"></i> 匯出月報
+        </button>
+        <div class="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 overflow-hidden">
+          <div class="py-1">
+            <button onclick="exportPDF()" class="block w-full text-left px-4 py-2 hover:bg-indigo-50 text-indigo-700 text-sm font-bold"><i class="fa-solid fa-file-pdf mr-2 w-4"></i>完美版 PDF</button>
+            <button onclick="exportPNG()" class="block w-full text-left px-4 py-2 hover:bg-slate-100 text-slate-700 text-sm"><i class="fa-solid fa-image mr-2 w-4"></i>匯出圖檔 (PNG)</button>
+            <button onclick="exportWord()" class="block w-full text-left px-4 py-2 hover:bg-slate-100 text-slate-700 text-sm"><i class="fa-solid fa-file-word mr-2 w-4"></i>匯出 Word 檔</button>
+            <button onclick="window.print()" class="block w-full text-left px-4 py-2 hover:bg-slate-100 text-slate-700 text-sm border-t border-slate-100 mt-1"><i class="fa-solid fa-print mr-2 w-4"></i>傳統列印</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+    
+    <!-- 左側設定區 -->
+    <aside id="sidebar" class="w-96 bg-white border-r border-slate-200 flex flex-col z-10 shrink-0">
+      <!-- 頁籤切換 -->
+      <div class="flex border-b border-slate-200">
+        <button onclick="switchTab('content')" id="tab-content" class="flex-1 py-3 text-sm font-bold text-indigo-600 border-b-2 border-indigo-600 transition">內容編輯</button>
+        <button onclick="switchTab('layout')" id="tab-layout" class="flex-1 py-3 text-sm font-medium text-slate-500 hover:text-slate-800 transition">區塊版面</button>
+        <button onclick="switchTab('style')" id="tab-style" class="flex-1 py-3 text-sm font-medium text-slate-500 hover:text-slate-800 transition">風格設定</button>
+      </div>
+
+      <!-- 設定區內容 -->
+      <div class="flex-1 overflow-y-auto p-5 no-scrollbar bg-slate-50/50">
+        
+        <!-- 1. 內容編輯頁籤 -->
+        <div id="panel-content" class="space-y-6">
+          
+          <!-- AI 設定區塊 -->
+          <div class="bg-indigo-50 p-3 rounded-lg border border-indigo-100 shadow-sm">
+            <div class="flex justify-between items-center mb-1">
+              <label class="block text-xs font-bold text-indigo-800"><i class="fa-solid fa-wand-magic-sparkles"></i> Gemini API Key (AI 寫作功能需要)</label>
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-[10px] bg-indigo-200 text-indigo-800 px-2 py-0.5 rounded font-semibold hover:bg-indigo-300 transition flex items-center shadow-sm">
+                <i class="fa-solid fa-key mr-1"></i>免費取得 Key
+              </a>
+            </div>
+            <input type="password" id="input-api-key" placeholder="輸入您的 API Key..." class="w-full border-indigo-200 rounded text-sm p-1.5 focus:ring-2 focus:ring-indigo-500 outline-none" oninput="saveApiKey(this.value)">
+            <p class="text-[10px] text-indigo-600 mt-1 leading-relaxed">
+              您的 Key 僅儲存於本地瀏覽器，不會上傳至任何伺服器。<br>
+              <span class="text-indigo-400">教學：點擊右上方按鈕前往 Google AI Studio 登入後，點擊「Create API key」即可複製使用。</span>
+            </p>
+          </div>
+
+          <div class="space-y-3">
+            <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider">基礎資訊</h3>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">班級名稱 (如: 五年五班)</label>
+              <input type="text" id="input-classTitle" class="w-full border-slate-300 rounded-md text-sm p-2 border focus:ring-2 focus:ring-indigo-500 outline-none" oninput="updateState('classTitle', this.value)">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">期數 (如: 第 01 期)</label>
+                <input type="text" id="input-issueNumber" class="w-full border-slate-300 rounded-md text-sm p-2 border focus:ring-2 focus:ring-indigo-500 outline-none" oninput="updateState('issueNumber', this.value)">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">編輯/導師姓名</label>
+                <input type="text" id="input-editorName" class="w-full border-slate-300 rounded-md text-sm p-2 border focus:ring-2 focus:ring-indigo-500 outline-none" oninput="updateState('editorName', this.value)">
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">每日一句 / 班級標語</label>
+              <input type="text" id="input-motto" class="w-full border-slate-300 rounded-md text-sm p-2 border focus:ring-2 focus:ring-indigo-500 outline-none" oninput="updateState('motto', this.value)">
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">本月班級布告欄主題 (選填)</label>
+              <input type="text" id="input-bulletinTheme" class="w-full border-slate-300 rounded-md text-sm p-2 border focus:ring-2 focus:ring-indigo-500 outline-none placeholder:text-slate-300" placeholder="例如：我的小書展" oninput="updateState('bulletinTheme', this.value)">
+            </div>
+          </div>
+
+          <hr class="border-slate-200">
+
+          <!-- 動態編輯區 (文章、文字) -->
+          <div id="dynamic-content-editor" class="space-y-5">
+            <!-- 由 JS 動態生成區塊編輯器 -->
+          </div>
+
+          <!-- 照片上傳區 -->
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+            <h3 class="text-sm font-bold text-slate-800 mb-3"><i class="fa-solid fa-camera mr-2 text-indigo-500"></i>相片管理 (支援多圖/HEIC)</h3>
+            <label class="flex justify-center items-center px-4 py-3 bg-indigo-50 text-indigo-600 rounded-lg cursor-pointer hover:bg-indigo-100 transition border border-dashed border-indigo-300 mb-3">
+              <i class="fa-solid fa-upload mr-2"></i> 上傳照片
+              <input type="file" multiple accept="image/*,.heic" class="hidden" onchange="handlePhotoUpload(event)">
+            </label>
+            <div id="photo-list" class="space-y-2 max-h-60 overflow-y-auto pr-1">
+              <!-- JS 生成已上傳照片清單 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 區塊版面頁籤 -->
+        <div id="panel-layout" class="hidden space-y-4">
+          <p class="text-xs text-slate-500 mb-2"><i class="fa-solid fa-circle-info mr-1"></i> 您可以拖曳排序、調整寬度比例，或新增自訂區塊。</p>
+          
+          <div id="section-controls" class="space-y-0">
+            <!-- JS 生成區塊控制項 -->
+          </div>
+          
+          <div class="mt-3 flex gap-2">
+            <button onclick="addSection('text')" class="flex-1 bg-slate-50 text-slate-600 border border-slate-200 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 transition"><i class="fa-solid fa-plus mr-1"></i>文字</button>
+            <button onclick="addSection('list')" class="flex-1 bg-slate-50 text-slate-600 border border-slate-200 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 transition"><i class="fa-solid fa-plus mr-1"></i>條列</button>
+            <button onclick="addSection('gallery')" class="flex-1 bg-slate-50 text-slate-600 border border-slate-200 py-2 rounded-lg text-xs font-bold hover:bg-slate-100 transition"><i class="fa-solid fa-plus mr-1"></i>相片</button>
+          </div>
+          
+          <div class="mt-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+             <h3 class="text-sm font-bold text-slate-800 mb-3"><i class="fa-solid fa-images mr-1 text-indigo-500"></i>相片排版設定</h3>
+             <label class="block text-xs text-slate-500 mb-1">相片顯示欄數</label>
+             <select id="select-photo-columns" class="w-full border-slate-300 rounded-md text-sm p-2 border outline-none mb-3" onchange="updateState('photoColumns', this.value)">
+               <option value="grid-cols-1">單張大圖 (1欄)</option>
+               <option value="grid-cols-2">雙圖並排 (2欄)</option>
+               <option value="grid-cols-3">三圖並排 (3欄)</option>
+               <option value="grid-cols-4">四圖並排 (4欄)</option>
+               <option value="columns-auto">彈性適應 (自動排列)</option>
+             </select>
+
+             <label class="block text-xs text-slate-500 mb-1">相片填滿模式 (避免未滿版)</label>
+             <select id="select-photo-fit" class="w-full border-slate-300 rounded-md text-sm p-2 border outline-none" onchange="updateState('photoFit', this.value)">
+               <option value="cover">裁切填滿 (滿版，無白邊)</option>
+               <option value="contain">完整顯示 (保留全圖，可能有白邊)</option>
+             </select>
+          </div>
+        </div>
+
+        <!-- 3. 風格設定頁籤 -->
+        <div id="panel-style" class="hidden space-y-6">
+          <div>
+            <h3 class="text-sm font-bold text-slate-800 mb-3">報紙字體選擇</h3>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="updateState('font', 'font-sans')" id="font-btn-sans" class="font-btn border-2 border-indigo-600 bg-indigo-50 text-indigo-700 py-2 rounded-lg font-sans font-bold text-sm">黑體 (現代)</button>
+              <button onclick="updateState('font', 'font-serif')" id="font-btn-serif" class="font-btn border-2 border-transparent bg-white text-slate-600 hover:border-slate-300 py-2 rounded-lg font-serif font-bold text-sm">明體 (經典)</button>
+              <button onclick="updateState('font', 'font-round')" id="font-btn-round" class="font-btn border-2 border-transparent bg-white text-slate-600 hover:border-slate-300 py-2 rounded-lg font-round font-bold text-sm">圓體 (活潑)</button>
+              <button onclick="updateState('font', 'font-hand')" id="font-btn-hand" class="font-btn border-2 border-transparent bg-white text-slate-600 hover:border-slate-300 py-2 rounded-lg font-hand font-bold text-sm">手寫 (古風)</button>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="text-sm font-bold text-slate-800 mb-3">色彩主題</h3>
+            <div class="space-y-2">
+              <label class="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                <input type="radio" name="theme" value="classic" checked onchange="updateState('theme', this.value)" class="w-4 h-4 text-indigo-600">
+                <span class="font-bold text-sm text-slate-800">復古報紙 (經典黑白)</span>
+              </label>
+              <label class="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                <input type="radio" name="theme" value="warm" onchange="updateState('theme', this.value)" class="w-4 h-4 text-amber-600">
+                <span class="font-bold text-sm text-amber-900">溫馨校園 (暖色調)</span>
+              </label>
+              <label class="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-slate-50 transition">
+                <input type="radio" name="theme" value="ocean" onchange="updateState('theme', this.value)" class="w-4 h-4 text-sky-600">
+                <span class="font-bold text-sm text-sky-900">清爽活力 (藍色調)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- 右側預覽區 (有橫向捲動，確保 A4 鎖定尺寸) -->
+    <main id="main-content" class="flex-1 bg-slate-200 overflow-auto p-4 md:p-8 flex justify-center">
+      
+      <!-- A4 實體畫布 -->
+      <div id="newspaperPaper" class="a4-paper font-serif transition-colors duration-300 bg-white text-slate-900">
+        
+        <!-- 報頭 Header -->
+        <header class="border-b-4 border-slate-900 pb-2 mb-4">
+          <div class="flex justify-between items-end mb-2 text-xs font-bold text-slate-600">
+            <span id="render-date">2026年10月03日</span>
+            <span id="render-issueNumber">第 01 期</span>
+            <span id="render-editorName">國瑋老師 編輯</span>
+          </div>
+          
+          <div class="text-center py-4 border-y-2 border-slate-900 my-2">
+             <h1 id="render-classTitle" class="text-5xl font-black tracking-widest text-slate-900">五年五班 班級月報</h1>
+          </div>
+          
+          <div class="flex justify-between items-center text-sm">
+            <div class="flex items-center gap-3">
+              <span class="italic text-slate-500 font-medium"><i class="fa-solid fa-quote-left text-xs mr-1 text-slate-300"></i><span id="render-motto">快樂學習，勇於挑戰！</span></span>
+              <span id="render-bulletinTheme-container" class="hidden bg-amber-100 text-amber-800 text-xs font-bold px-2 py-0.5 rounded shadow-sm border border-amber-200">
+                <i class="fa-solid fa-bullhorn mr-1"></i>布告欄主題：<span id="render-bulletinTheme"></span>
+              </span>
+            </div>
+            <span class="font-bold bg-slate-900 text-white px-2 py-1 text-xs">班級月報</span>
+          </div>
+        </header>
+
+        <!-- 網格排版主體 (使用 12 欄 Grid 系統) -->
+        <!-- 重要：行距設定為 gap-6，確保 A4 空間夠用 -->
+        <div id="render-sections-container" class="grid grid-cols-12 gap-x-6 gap-y-4">
+          <!-- JS 將根據 state 動態渲染這裡面的區塊 -->
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- 浮動提示 Toast 訊息框 -->
+  <div id="toast-message" class="fixed bottom-6 right-6 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl text-xs font-medium transition-all duration-300 transform translate-y-10 opacity-0 pointer-events-none z-50 flex items-center gap-2.5 border border-slate-700">
+    <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400 text-sm"></i>
+    <span id="toast-text">已自動儲存草稿</span>
+  </div>
+
+  <!-- Firebase 雲端整合模組 -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'newspaper-generator';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+    
+    window.db = null;
+    window.auth = null;
+    window.currentUser = null;
+
+    if (firebaseConfig) {
+      const app = initializeApp(firebaseConfig);
+      window.auth = getAuth(app);
+      window.db = getFirestore(app);
+
+      // 環境預設登入處理 (以防網頁環境有預設 Auth Token)
+      if (typeof __initial_auth_token !== 'undefined') {
+        signInWithCustomToken(window.auth, __initial_auth_token).catch(console.error);
+      }
+
+      onAuthStateChanged(window.auth, (user) => {
+        window.currentUser = user;
+        const loginBtn = document.getElementById('btn-google-login');
+        const profileDiv = document.getElementById('user-profile');
+        
+        // 若使用者存在且非匿名身分，顯示使用者資料與登出按鈕
+        if (user && !user.isAnonymous) {
+          if (loginBtn) loginBtn.classList.add('hidden');
+          if (profileDiv) profileDiv.classList.remove('hidden');
+          
+          const nameEl = document.getElementById('user-name');
+          const avatarEl = document.getElementById('user-avatar');
+          if (nameEl) nameEl.innerText = user.displayName || '使用者';
+          if (avatarEl) avatarEl.src = user.photoURL || 'https://placehold.co/100x100/e2e8f0/475569?text=U';
+          
+          // 登入後自動嘗試從雲端載入進度
+          loadCloudProgress();
+        } else {
+          if (loginBtn) loginBtn.classList.remove('hidden');
+          if (profileDiv) profileDiv.classList.add('hidden');
+        }
+      });
+
+      window.googleLogin = async () => {
+        const provider = new GoogleAuthProvider();
+        try {
+          await signInWithPopup(window.auth, provider);
+          if(window.showToast) window.showToast('Google 帳號登入成功！', 'fa-solid fa-check-circle text-emerald-400');
+        } catch (error) {
+          console.error("登入失敗", error);
+          if(window.showToast) window.showToast('登入取消或發生錯誤', 'fa-solid fa-circle-xmark text-rose-400');
+        }
+      };
+
+      window.googleLogout = async () => {
+        try {
+          await signOut(window.auth);
+          if(window.showToast) window.showToast('已登出雲端同步', 'fa-solid fa-info-circle text-sky-400');
+        } catch (error) {
+          console.error(error);
+        }
+      };
+    }
+
+    // 載入雲端資料
+    async function loadCloudProgress() {
+       if (!window.currentUser || !window.db) return;
+       try {
+         const docRef = doc(window.db, 'artifacts', appId, 'users', window.currentUser.uid);
+         const docSnap = await getDoc(docRef);
+         if (docSnap.exists()) {
+            const data = docSnap.data();
+            if (data && data.state && window.updateWholeState) {
+               window.updateWholeState(data.state);
+               if(window.showToast) window.showToast('已成功從雲端載入您的月報', 'fa-solid fa-cloud-arrow-down text-sky-400');
+            }
+         }
+       } catch (e) {
+         console.error("載入雲端進度失敗", e);
+       }
+    }
+
+    // 將資料存至雲端提供給主要腳本呼叫
+    window.saveToCloud = async (currentState) => {
+       if (!window.currentUser || !window.currentUser.uid || !window.db || window.currentUser.isAnonymous) return false;
+       try {
+          const docRef = doc(window.db, 'artifacts', appId, 'users', window.currentUser.uid);
+          await setDoc(docRef, {
+              state: currentState,
+              updatedAt: new Date().toISOString()
+          });
+          return true;
+       } catch (e) {
+          console.error("雲端儲存失敗", e);
+          return false;
+       }
+    };
+  </script>
+
+  <script>
+    // ----------------------------------------------------
+    // 預設樣板與狀態管理 (Global State)
+    // ----------------------------------------------------
+    const defaultState = {
+      classTitle: '五年五班',
+      issueNumber: '第 01 期',
+      editorName: '國瑋老師',
+      date: '',
+      motto: '快樂學習，勇於挑戰！',
+      bulletinTheme: '秋季運動會',
+      font: 'font-serif', // 預設字體
+      theme: 'classic',   // 預設主題色彩
+      photoColumns: 'grid-cols-2', // 預設照片欄數
+      photoFit: 'cover',  // 預設照片填滿模式
+      photos: [
+        { id: 1, url: 'https://placehold.co/400x300/e2e8f0/475569?text=Photo+1', caption: '大隊接力冠軍！' },
+        { id: 2, url: 'https://placehold.co/400x300/e2e8f0/475569?text=Photo+2', caption: '趣味競賽剪影' }
+      ],
+      sections: [
+        { id: 'sec-1', type: 'text', visible: true, span: 'col-span-12', title: '班級新聞', content: '這個月我們班在校慶運動會中表現優異，大家都展現了無比的團隊精神與毅力。接下來的期中考也請繼續加油！每天進步一點點，累積起來就是巨大的成就。' },
+        { id: 'sec-2', type: 'list', visible: true, span: 'col-span-12', title: '榮譽榜', content: '小明：校慶短跑第一名\n小華：畫畫比賽優等\n全班：整潔比賽總冠軍' },
+        { id: 'sec-3', type: 'gallery', visible: true, span: 'col-span-12', title: '活動剪影', content: '' }
+      ]
+    };
+
+    // 深拷貝預設值至當前 state
+    let state = JSON.parse(JSON.stringify(defaultState));
+
+    // 為了讓 module 可以更新 state 並重新渲染
+    window.updateWholeState = function(newState) {
+      Object.assign(state, newState);
+      syncInputsFromState();
+      renderAll();
+    };
+
+    // ----------------------------------------------------
+    // 初始化與渲染綁定
+    // ----------------------------------------------------
+    window.addEventListener('DOMContentLoaded', () => {
+      // 1. 嘗試從 localStorage 自動載入上次草稿
+      loadProgress();
+
+      // 2. 載入表單值到左側介面
+      syncInputsFromState();
+
+      // 載入 API Key
+      document.getElementById('input-api-key').value = getApiKey();
+
+      // 設定預設日期為今日 (若沒帶入舊日期)
+      if (!state.date) {
+        const today = new Date();
+        state.date = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, '0')}月${String(today.getDate()).padStart(2, '0')}日`;
+      }
+
+      // 初始化拖曳排序 SortableJS
+      Sortable.create(document.getElementById('section-controls'), {
+        handle: '.cursor-move',
+        animation: 150,
+        ghostClass: 'opacity-50',
+        onEnd: function (evt) {
+          const movedItem = state.sections.splice(evt.oldIndex, 1)[0];
+          state.sections.splice(evt.newIndex, 0, movedItem);
+          renderAll();
+          triggerAutoSave();
+        }
+      });
+
+      renderAll();
+    });
+
+    function syncInputsFromState() {
+      document.getElementById('input-classTitle').value = state.classTitle || '';
+      document.getElementById('input-issueNumber').value = state.issueNumber || '';
+      document.getElementById('input-editorName').value = state.editorName || '';
+      document.getElementById('input-motto').value = state.motto || '';
+      document.getElementById('input-bulletinTheme').value = state.bulletinTheme || '';
+      document.getElementById('select-photo-columns').value = state.photoColumns || 'grid-cols-4';
+      document.getElementById('select-photo-fit').value = state.photoFit || 'cover';
+    }
+
+    function updateState(key, value) {
+      state[key] = value;
+      renderPreview();
+      triggerAutoSave();
+    }
+
+    // ----------------------------------------------------
+    // 進度儲存 / 載入 / 備份匯出入系統
+    // ----------------------------------------------------
+    let autoSaveTimer = null;
+    function triggerAutoSave() {
+      if (autoSaveTimer) clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(() => {
+        saveProgress(true); // 背景自動儲存
+      }, 1200);
+    }
+
+    async function saveProgress(isAuto = false) {
+      try {
+        // 先儲存至本地
+        localStorage.setItem('newspaperState', JSON.stringify(state));
+        let cloudSaved = false;
+
+        // 若有登入且有雲端儲存函式，同步至雲端
+        if (typeof window.saveToCloud === 'function') {
+           cloudSaved = await window.saveToCloud(state);
+        }
+        
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const badge = document.getElementById('save-time-badge');
+        
+        if (cloudSaved) {
+           if (badge) badge.innerText = `(雲端已儲存 ${timeStr})`;
+           if (!isAuto) showToast('進度已順利儲存至雲端與本地！', 'fa-solid fa-cloud-check text-emerald-400');
+        } else {
+           if (badge) badge.innerText = `(${timeStr})`;
+           if (!isAuto) showToast('進度已順利儲存至本地！', 'fa-solid fa-circle-check text-emerald-400');
+        }
+      } catch (err) {
+        console.error('儲存失敗:', err);
+        if (err.name === 'QuotaExceededError' || err.code === 22) {
+          showToast('暫存空間已滿，建議匯出 JSON 備份檔！', 'fa-solid fa-triangle-exclamation text-amber-400');
+        } else {
+          showToast('儲存失敗', 'fa-solid fa-circle-xmark text-rose-400');
+        }
+      }
+    }
+
+    function loadProgress() {
+      try {
+        const saved = localStorage.getItem('newspaperState');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          Object.assign(state, parsed);
+          showToast('已自動還原上次儲存的月報進度', 'fa-solid fa-clock-rotate-left text-sky-400');
+        }
+      } catch (e) {
+        console.error('載入暫存失敗', e);
+      }
+    }
+
+    function exportBackupJSON() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", `${state.classTitle || '班級'}_月報備份檔.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      showToast('已下載備份檔 (.json)', 'fa-solid fa-file-arrow-down text-emerald-400');
+    }
+
+    function importBackupJSON(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        try {
+          const importedState = JSON.parse(event.target.result);
+          if (importedState && typeof importedState === 'object') {
+            state = importedState;
+            syncInputsFromState();
+            renderAll();
+            saveProgress(true);
+            showToast('已成功匯入備份資料！', 'fa-solid fa-circle-check text-emerald-400');
+          } else {
+            throw new Error('格式不正確');
+          }
+        } catch (err) {
+          alert('匯入失敗：備份檔案格式不合。');
+        }
+      };
+      reader.readAsText(file);
+      e.target.value = ''; // 重置 input
+    }
+
+    function resetToDefaultState() {
+      if (confirm('確定要將排版重置為預設範本嗎？未備份的內容將會被覆蓋。')) {
+        state = JSON.parse(JSON.stringify(defaultState));
+        const today = new Date();
+        state.date = `${today.getFullYear()}年${String(today.getMonth() + 1).padStart(2, '0')}月${String(today.getDate()).padStart(2, '0')}日`;
+        
+        syncInputsFromState();
+        renderAll();
+        saveProgress(true);
+        showToast('已重置為預設範本', 'fa-solid fa-rotate-left text-indigo-400');
+      }
+    }
+
+    // 浮動 Toast 提示控制
+    let toastTimer = null;
+    function showToast(message, iconClass = 'fa-solid fa-circle-check text-emerald-400', duration = 3000) {
+      const toast = document.getElementById('toast-message');
+      const toastText = document.getElementById('toast-text');
+      const toastIcon = document.getElementById('toast-icon');
+
+      if (!toast || !toastText || !toastIcon) return;
+
+      toastText.innerText = message;
+      toastIcon.className = iconClass;
+
+      toast.classList.remove('translate-y-10', 'opacity-0', 'pointer-events-none');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.remove('translate-y-0', 'opacity-100');
+        toast.classList.add('translate-y-10', 'opacity-0', 'pointer-events-none');
+      }, duration);
+    }
+    window.showToast = showToast; // 將顯示訊息功能開給模組使用
+
+    // 核心預覽區渲染引擎 (只更新右側，避免中斷左側輸入焦點)
+    function renderPreview() {
+      // 1. 渲染基本資訊
+      document.getElementById('render-classTitle').innerText = state.classTitle ? state.classTitle + ' 班級月報' : '班級月報';
+      document.getElementById('render-issueNumber').innerText = state.issueNumber;
+      document.getElementById('render-editorName').innerText = state.editorName ? state.editorName + ' 編輯' : '';
+      document.getElementById('render-date').innerText = state.date;
+      document.getElementById('render-motto').innerText = state.motto;
+      
+      const bulletinEl = document.getElementById('render-bulletinTheme');
+      const bulletinContainer = document.getElementById('render-bulletinTheme-container');
+      if(state.bulletinTheme && state.bulletinTheme.trim() !== "") {
+        bulletinEl.innerText = state.bulletinTheme;
+        bulletinContainer.classList.remove('hidden');
+      } else {
+        bulletinContainer.classList.add('hidden');
+      }
+
+      // 2. 渲染字體與主題
+      const paper = document.getElementById('newspaperPaper');
+      paper.className = `a4-paper transition-colors duration-300 ${state.font}`;
+      
+      // 處理主題色彩 (簡單切換邊框與文字色系)
+      let themeStyles = "";
+      if(state.theme === 'warm') { themeStyles = "text-amber-950"; paper.style.backgroundColor = '#fffbeb'; }
+      else if (state.theme === 'ocean') { themeStyles = "text-sky-950"; paper.style.backgroundColor = '#f0f9ff'; }
+      else { themeStyles = "text-slate-900"; paper.style.backgroundColor = '#ffffff'; }
+      paper.classList.add(themeStyles);
+
+      // 更新按鈕UI
+      document.querySelectorAll('.font-btn').forEach(btn => {
+        btn.classList.remove('border-indigo-600', 'bg-indigo-50', 'text-indigo-700');
+        btn.classList.add('border-transparent', 'bg-white', 'text-slate-600');
+      });
+      const activeBtn = document.getElementById(`font-btn-${state.font.split('-')[1]}`);
+      if(activeBtn) {
+        activeBtn.classList.remove('border-transparent', 'bg-white', 'text-slate-600');
+        activeBtn.classList.add('border-indigo-600', 'bg-indigo-50', 'text-indigo-700');
+      }
+
+      // 3. 渲染右側預覽區塊
+      const container = document.getElementById('render-sections-container');
+      container.innerHTML = '';
+      
+      state.sections.forEach(sec => {
+        if (!sec.visible) return;
+        
+        let contentHTML = '';
+        if (sec.type === 'text') {
+          contentHTML = `<div class="text-sm leading-relaxed text-justify mt-2 text-inherit">${sec.content.replace(/\n/g, '<br>')}</div>`;
+        } else if (sec.type === 'list') {
+          const items = sec.content.split('\n').filter(i => i.trim() !== '');
+          const listItems = items.map(i => `<li class="border-b border-dashed border-gray-300 py-1.5 flex justify-between text-sm"><span>${i}</span></li>`).join('');
+          contentHTML = `<ul class="mt-2">${listItems}</ul>`;
+        } else if (sec.type === 'gallery') {
+          // 照片排版
+          const gridClass = state.photoColumns === 'columns-auto' ? 'flex flex-wrap gap-2' : `grid ${state.photoColumns} gap-3`;
+          const fitClass = state.photoFit === 'contain' ? 'object-contain' : 'object-cover';
+          const pClass = state.photoFit === 'contain' ? 'p-1' : 'p-0';
+          
+          let photosHTML = state.photos.map(p => {
+             const itemStyle = state.photoColumns === 'columns-auto' ? 'flex-1 min-w-[120px] max-w-[200px]' : '';
+             return `
+              <div class="flex flex-col items-center ${itemStyle}">
+                <div class="w-full aspect-[4/3] bg-gray-100 border border-gray-300 overflow-hidden rounded flex items-center justify-center ${pClass}">
+                  <img src="${p.url}" alt="${p.caption}" class="w-full h-full ${fitClass}">
+                </div>
+                <p class="text-[10px] mt-1 text-center text-gray-600 font-medium italic"> ${p.caption}</p>
+              </div>`;
+          }).join('');
+          
+          if(state.photos.length === 0) {
+            photosHTML = `<div class="w-full py-8 text-center text-gray-400 text-sm border-2 border-dashed border-gray-200">請上傳照片</div>`;
+          }
+          contentHTML = `<div class="${gridClass} mt-3">${photosHTML}</div>`;
+        }
+
+        // 報紙風格的區塊標題設計
+        const sectionStyle = state.theme === 'classic' ? 'border-t-2 border-black pt-1' : 'border-t-2 border-current pt-1 opacity-90';
+        const titleIcon = sec.type === 'gallery' ? '<i class="fa-solid fa-camera retro-icon"></i>' : '<div class="w-3 h-3 bg-current mt-1 mr-2 inline-block"></div>';
+
+        const html = `
+          <div class="${sec.span} mb-4 section-block page-break-inside-avoid">
+            <div class="${sectionStyle} flex justify-between items-baseline mb-2">
+              <h2 class="text-xl font-black flex items-center gap-1 tracking-wide">${titleIcon} ${sec.title}</h2>
+            </div>
+            ${contentHTML}
+          </div>
+        `;
+        container.innerHTML += html;
+      });
+    }
+
+    // 核心渲染引擎 (全部重新渲染)
+    function renderAll() {
+      renderPreview();
+      renderLeftPanels();
+    }
+
+    function renderLeftPanels() {
+      // 內容編輯器區塊
+      const editorDiv = document.getElementById('dynamic-content-editor');
+      editorDiv.innerHTML = '';
+      
+      state.sections.forEach((sec, index) => {
+        if (sec.type === 'gallery') return; // 照片由專屬區塊處理
+        
+        const html = `
+          <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm transition ${!sec.visible ? 'opacity-50' : ''}">
+            <div class="flex justify-between items-center mb-2">
+              <input type="text" value="${sec.title}" class="font-bold text-slate-800 border-none bg-transparent outline-none focus:ring-1 focus:ring-indigo-300 rounded px-1 w-1/2" onchange="updateSectionTitle(${index}, this.value)">
+              ${(sec.type === 'text' || sec.type === 'list') ? `<button onclick="promptAIGenerate(${index})" class="text-[11px] bg-indigo-100 text-indigo-700 hover:bg-indigo-200 py-1.5 px-2.5 rounded-lg font-bold transition flex items-center gap-1.5 shadow-sm"><i class="fa-solid fa-wand-magic-sparkles"></i> AI 幫我寫</button>` : ''}
+            </div>
+            <textarea id="section-textarea-${index}" class="w-full border border-slate-300 rounded-md p-2 text-sm text-slate-700 min-h-[100px] outline-none focus:border-indigo-500 transition-colors" oninput="updateSectionContent(${index}, this.value)">${sec.content.replace(/<br>/g, '\n').replace(/<b>/g, '').replace(/<\/b>/g, '')}</textarea>
+          </div>
+        `;
+        editorDiv.innerHTML += html;
+      });
+
+      // 照片清單區塊
+      const photoList = document.getElementById('photo-list');
+      photoList.innerHTML = '';
+      state.photos.forEach((p, index) => {
+        photoList.innerHTML += `
+          <div class="flex items-center gap-2 bg-slate-50 p-2 rounded border border-slate-100">
+            <img src="${p.url}" class="w-12 h-12 object-cover rounded bg-white border">
+            <input type="text" value="${p.caption}" onchange="updatePhotoCaption(${index}, this.value)" class="flex-1 text-xs p-1 border rounded" placeholder="輸入圖說...">
+            <button onclick="removePhoto(${index})" class="text-red-400 hover:text-red-600 p-1"><i class="fa-solid fa-trash"></i></button>
+          </div>
+        `;
+      });
+
+      // 區塊版面控制項
+      const controlsDiv = document.getElementById('section-controls');
+      controlsDiv.innerHTML = '';
+      state.sections.forEach((sec, index) => {
+        const spanValue = parseInt(sec.span.replace('col-span-', '')) || 12;
+        controlsDiv.innerHTML += `
+          <div class="bg-white p-3 rounded border border-slate-200 shadow-sm mb-2 transition-all">
+            <div class="flex items-center gap-3">
+              <div class="cursor-move text-slate-300 hover:text-slate-500 px-1"><i class="fa-solid fa-grip-vertical"></i></div>
+              <div class="flex-1 font-bold text-sm text-slate-700 truncate">${sec.title}</div>
+              
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" class="sr-only peer" ${sec.visible ? 'checked' : ''} onchange="toggleSectionVisible(${index})">
+                <div class="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+              </label>
+              <button onclick="deleteSection(${index})" class="text-slate-300 hover:text-red-500 ml-1 transition" title="刪除區塊"><i class="fa-solid fa-trash-can"></i></button>
+            </div>
+            <div class="flex items-center gap-2 mt-3 pl-7">
+              <span class="text-xs text-slate-500 whitespace-nowrap"><i class="fa-solid fa-arrows-left-right mr-1"></i>寬度</span>
+              <input type="range" min="2" max="12" step="1" value="${spanValue}" class="flex-1 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" oninput="updateSectionSpan(${index}, 'col-span-' + this.value)">
+              <span id="span-display-${index}" class="text-xs font-bold text-slate-600 w-5 text-right">${spanValue}</span>
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    function updateSectionContent(index, value) {
+      state.sections[index].content = value.replace(/\n/g, '<br>'); // 簡易換行保留
+      renderPreview();
+      triggerAutoSave();
+    }
+    function updateSectionTitle(index, value) {
+      state.sections[index].title = value;
+      renderPreview();
+      triggerAutoSave();
+    }
+    function updateSectionSpan(index, value) {
+      state.sections[index].span = value;
+      const displayEl = document.getElementById(`span-display-${index}`);
+      if (displayEl) displayEl.innerText = value.replace('col-span-', '');
+      renderPreview();
+      triggerAutoSave();
+    }
+    function toggleSectionVisible(index) {
+      state.sections[index].visible = !state.sections[index].visible;
+      renderPreview();
+      triggerAutoSave();
+    }
+    function updatePhotoCaption(index, value) {
+      state.photos[index].caption = value;
+      renderPreview();
+      triggerAutoSave();
+    }
+    function removePhoto(index) {
+      state.photos.splice(index, 1);
+      renderAll();
+      triggerAutoSave();
+    }
+    
+    function deleteSection(index) {
+      if(confirm('確定要刪除這個區塊嗎？')) {
+        state.sections.splice(index, 1);
+        renderAll();
+        triggerAutoSave();
+      }
+    }
+
+    function addSection(type) {
+      const newSec = {
+        id: 'custom-' + Date.now(),
+        type: type,
+        visible: true,
+        span: 'col-span-12',
+        title: type === 'text' ? '自訂文字' : (type === 'list' ? '自訂清單' : '相片區塊'),
+        content: type === 'list' ? '項目一\n項目二' : (type === 'gallery' ? '' : '請輸入內容...')
+      };
+      state.sections.push(newSec);
+      renderAll();
+      triggerAutoSave();
+      // 切換回內容頁籤以便編輯
+      if(type !== 'gallery') {
+        switchTab('content');
+      }
+    }
+
+    function getBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = error => reject(error);
+      });
+    }
+
+    async function handlePhotoUpload(e) {
+      const files = Array.from(e.target.files);
+      if(!files.length) return;
+
+      const btn = e.target.parentElement;
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> 處理中...';
+
+      for(let file of files) {
+        try {
+          let base64Url = "";
+          // 如果是 HEIC 格式，使用 heic2any 轉換
+          if(file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
+            if(typeof heic2any !== 'undefined') {
+              const blob = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.8 });
+              const actualBlob = Array.isArray(blob) ? blob[0] : blob;
+              const newFile = new File([actualBlob], file.name.replace(/\.heic$/i, '.jpg'), {type: "image/jpeg"});
+              base64Url = await getBase64(newFile);
+            } else {
+               alert("HEIC 轉換套件載入失敗，請檢查網路連線");
+               continue;
+            }
+          } else {
+            // 一般圖片直接轉 Base64
+            base64Url = await getBase64(file);
+          }
+          state.photos.push({ id: Date.now()+Math.random(), url: base64Url, caption: '輸入圖說' });
+        } catch (err) {
+          console.error("相片處理失敗", err);
+          alert(`照片 ${file.name} 處理失敗，請確認檔案格式是否正確。`);
+        }
+      }
+      
+      btn.innerHTML = originalHtml;
+      e.target.value = ''; // reset input
+      renderAll();
+    }
+
+    function switchTab(tabId) {
+      ['content', 'layout', 'style'].forEach(t => {
+        document.getElementById(`panel-${t}`).classList.add('hidden');
+        const btn = document.getElementById(`tab-${t}`);
+        btn.classList.remove('text-indigo-600', 'border-b-2', 'border-indigo-600', 'font-bold');
+        btn.classList.add('text-slate-500', 'font-medium');
+      });
+      document.getElementById(`panel-${tabId}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`tab-${tabId}`);
+      activeBtn.classList.remove('text-slate-500', 'font-medium');
+      activeBtn.classList.add('text-indigo-600', 'border-b-2', 'border-indigo-600', 'font-bold');
+      
+      // 切換頁籤時重新渲染左側，確保如標題變更等資料同步
+      renderLeftPanels();
+    }
+
+    
+    function exportPDF() {
+      if (typeof html2pdf === 'undefined') {
+        alert("PDF 模組尚未載入完畢，請稍後再試！");
+        return;
+      }
+      
+      const element = document.getElementById('newspaperPaper');
+      const btn = document.getElementById('exportMenuBtn');
+      const originalHtml = btn.innerHTML;
+      
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> PDF 產出中...';
+      
+      // html2pdf 設定
+      const opt = {
+        margin:       0, // 邊距設定為 0，因為 .a4-paper 本身已有 padding: 15mm
+        filename:     `${state.classTitle || '班級'}_月報.pdf`,
+        image:        { type: 'jpeg', quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
+        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      html2pdf().set(opt).from(element).save().then(() => {
+        btn.innerHTML = originalHtml;
+      });
+    }
+
+    function exportPNG() {
+      const element = document.getElementById('newspaperPaper');
+      const btn = document.getElementById('exportMenuBtn');
+      const originalHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 圖片產出中...';
+      
+      html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' }).then(canvas => {
+        const link = document.createElement('a');
+        link.download = `${state.classTitle || '班級'}_月報.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        btn.innerHTML = originalHtml;
+      });
+    }
+
+    function exportWord() {
+      // 將預覽區 HTML 複製一份來轉換 Word
+      const content = document.getElementById('newspaperPaper').outerHTML;
+      
+      // 構建 Word 支援的 HTML 結構 (支援 Base64 圖片)
+      const preHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <head><meta charset='utf-8'><title>匯出 Word</title>
+      <style>
+        body { font-family: "MingLiU", "微軟正黑體", serif; }
+        .grid { display: table; width: 100%; }
+        .col-span-12 { display: table-row; width: 100%; }
+        .col-span-6 { display: table-cell; width: 50%; padding: 10px; vertical-align: top;}
+        img { max-width: 100%; height: auto; }
+      </style></head><body>`;
+      const postHtml = "</body></html>";
+      
+      const html = preHtml + content + postHtml;
+      const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${state.classTitle || '班級'}_月報.doc`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    // ----------------------------------------------------
+    // AI 生成功能與 API Key 管理
+    // ----------------------------------------------------
+    function saveApiKey(key) {
+      localStorage.setItem('geminiApiKey', key);
+    }
+
+    function getApiKey() {
+      return localStorage.getItem('geminiApiKey') || '';
+    }
+
+    async function promptAIGenerate(index) {
+      const apiKey = getApiKey();
+      if (!apiKey) {
+        alert('請先在「內容編輯」最上方輸入您的 Gemini API Key！');
+        return;
+      }
+
+      const sec = state.sections[index];
+      const typeDesc = sec.type === 'list' ? '條列式重點 (使用換行分隔不同項目)' : '一段流暢的短文';
+      
+      const keywords = prompt(`請輸入你想寫的關鍵字，AI 將為您擴寫【${sec.title}】區塊：\n(例如：期中考大家都進步了、小明數學100分、繼續保持)`);
+      if (!keywords) return;
+
+      const textarea = document.getElementById(`section-textarea-${index}`);
+      const originalValue = textarea.value;
+      textarea.value = '✨ AI 正在努力撰寫中，請稍候...';
+      textarea.disabled = true;
+      textarea.classList.add('bg-slate-50', 'text-slate-400');
+
+      try {
+        const systemPrompt = `你是一位熱情、溫暖且充滿鼓勵的國小班導師。請根據使用者提供的關鍵字，撰寫適合放在「班級月報」中【${sec.title}】區塊的內容。\n請注意使用者的區塊格式要求：${typeDesc}。\n字數大約 50 到 150 字，語氣正向，適合家長與學生閱讀。請直接輸出最終內容，不要加入多餘的 Markdown 符號 (如 \`\`\` ) 或前後綴詞。`;
+        
+        const payload = {
+          contents: [{ parts: [{ text: keywords }] }],
+          systemInstruction: { parts: [{ text: systemPrompt }] }
+        };
+
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error?.message || 'API 請求失敗');
+        }
+
+        const result = await response.json();
+        const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (text) {
+          textarea.value = text.trim();
+          updateSectionContent(index, text.trim());
+          showToast('AI 撰寫完成！', 'fa-solid fa-wand-magic-sparkles text-indigo-400');
+        } else {
+           throw new Error('無法取得回覆內容');
+        }
+      } catch (error) {
+        alert(`AI 生成失敗：${error.message}`);
+        textarea.value = originalValue;
+      } finally {
+        textarea.disabled = false;
+        textarea.classList.remove('bg-slate-50', 'text-slate-400');
+      }
+    }
+  </script>
+</body>
+</html>
